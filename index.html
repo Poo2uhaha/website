@@ -8,55 +8,35 @@
     <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
-    <nav class="navbar">
-        <div class="logo">My Portfolio</div>
-        <ul class="nav-links">
-            <li><a href="#about">About</a></li>
-            <li><a href="#projects">Projects</a></li>
-            <li><a href="#contact">Contact</a></li>
-        </ul>
-    </nav>
+    <div class="top-banner"></div>
 
-    <header class="hero">
-        <h1>Welcome to My World</h1>
-        <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p>
-        <a href="#about" class="cta-button">Learn More</a>
-    </header>
+    <main class="academic-container">
+        <header class="academic-header">
+            <h1>Oliver Leask</h1>
+            <p class="subtitle">PhD Student | National Graphene Institute, University of Manchester</p>
+            <a href="cv.pdf" target="_blank" class="cv-link">View CV (PDF) &nearrow;</a>
+        </header>
 
-    <section id="about" class="section about">
-        <h2>About Me</h2>
-        <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Phasellus imperdiet, nulla et dictum interdum, nisi lorem egestas odio, vitae scelerisque enim ligula venenatis dolor.</p>
-    </section>
+        <section class="academic-section">
+            <h2>About Me</h2>
+            <p>I am a PhD student at the National Graphene Institute, part of the University of Manchester, UK. My interests include 2D materials and other cool stuff.</p>
+            <p>Outside of research, I enjoy sleeping.</p>
+        </section>
 
-    <section id="projects" class="section projects">
-        <h2>Projects</h2>
-        <div class="project-grid">
-            <div class="project-card">
-                <h3>Project One</h3>
-                <p>Lorem ipsum dolor sit amet, consectetur.</p>
-            </div>
-            <div class="project-card">
-                <h3>Project Two</h3>
-                <p>Lorem ipsum dolor sit amet, consectetur.</p>
-            </div>
-            <div class="project-card">
-                <h3>Project Three</h3>
-                <p>Lorem ipsum dolor sit amet, consectetur.</p>
-            </div>
-        </div>
-    </section>
+        <section class="academic-section">
+            <h2>Publications</h2>
+            <ul class="pub-list">
+                <li><strong>No publications! :DD</strong></li>
+            </ul>
+        </section>
 
-    <section id="contact" class="section contact">
-        <h2>Contact</h2>
-        <p>Email: <a href="mailto:example@example.com">example@example.com</a></p>
-    </section>
+        <footer class="academic-footer">
+            <p>Contact: <a href="mailto:ommoleask@gmail.com">ommoleask@gmail.com</a> | This site was coded entirely by an LLM.</p>
+        </footer>
+    </main>
 
-    <footer class="footer">
-        <p>&copy; 2026 My Portfolio</p>
-    </footer>
-
-    <!-- interactive cursor element -->
-    <div class="cursor"></div>
+    <!-- background grid canvas replaces the custom cursor -->
+    <canvas id="gridCanvas"></canvas>
 
     <script src="js/script.js"></script>
 </body>
