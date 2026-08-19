@@ -12,7 +12,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const hexSize = 40;              // Distance between points
     const lineWidth = 1;
     const nodeRadius = 2;
-    const mouseRadius = 150;         // Radius of illumination falloff
+    const baseMouseRadius = 150;         // Radius of illumination falloff
     const repulsionForce = 0.015;     // Push magnitude (smaller = milder)
     const stiffness = 0.015;          // Spring back strength (smaller = sluggish)
     const damping = 0.94;            // High damping for sluggish movement
@@ -26,10 +26,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Smoothstep-eased brightness in [0, 1] based on distance from the cursor
     function brightnessAt(px, py) {
-        const dist = Math.hypot(px - mouse.x, py - mouse.y);
-        const t = Math.max(0, Math.min(1, 1 - dist / mouseRadius));
-        return t * t * (3 - 2 * t);
-    }
+            const dx = px - mouse.x;
+            const dy = py - mouse.y;
+            const distSq = dx * dx + dy * dy;
+            const radiusSq = currentMouseRadius * currentMouseRadius;
+
+            // If the point is outside the mouse radius, return 0 instantly without Math.hypot
+            if (distSq >= radiusSq) return 0;
+
+            const dist = Math.sqrt(distSq);
+            const t = 1 - dist / currentMouseRadius;
+            return t * t * (3 - 2 * t);
+        }
 
     function colorForBrightness(t, baseRGB, baseA, litRGB, litA) {
         const r = lerp(baseRGB[0], litRGB[0], t) | 0;
@@ -44,11 +52,16 @@ document.addEventListener('DOMContentLoaded', () => {
     // -----------------------------------------------------------------
     let points = [];                 // {x, y, ox, oy, vx, vy}
     let mouse = { x: -9999, y: -9999 };
+    let gridMap = new Map();   
     let width, height;
-    let baseArea = null;             // viewport area at first load; the zoom reference point
+    let baseArea = null;
+    let zoomScale = 1;          
+    let currentMouseRadius = 150;
+    
 
     function buildGrid() {
         points = [];
+        gridMap.clear(); // <--- Clear the old map
         width = window.innerWidth;
         height = window.innerHeight;
         canvas.width = width;
@@ -62,7 +75,9 @@ document.addEventListener('DOMContentLoaded', () => {
         // whatever area is now visible.
         const currentArea = width * height;
         if (baseArea === null) baseArea = currentArea; // reference = first load
-        const zoomScale = Math.sqrt(currentArea / baseArea);
+        zoomScale = Math.sqrt(currentArea / baseArea);
+
+        currentMouseRadius = baseMouseRadius * zoomScale;
         const a = hexSize * zoomScale;
 
         const v1x = a * Math.sqrt(3);
@@ -98,6 +113,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 points.push({ x: bx, y: by, ox: bx, oy: by, vx: 0, vy: 0, type: 'B', i, j });
             }
         }
+
+        points.forEach((p, idx) => {
+        const key = `${p.type}-${p.i}-${p.j}`;
+        gridMap.set(key, idx);
+    });
     }
 
     document.addEventListener('mousemove', e => {
@@ -111,11 +131,11 @@ document.addEventListener('DOMContentLoaded', () => {
             const dx = p.x - mouse.x;
             const dy = p.y - mouse.y;
             const distSq = dx * dx + dy * dy;
-            const radiusSq = mouseRadius * mouseRadius;
+            const radiusSq = currentMouseRadius * currentMouseRadius;
 
             if (distSq < radiusSq) {
                 // PUSH AWAY from cursor
-                const force = (1 - Math.sqrt(distSq) / mouseRadius) * repulsionForce;
+                const force = (1 - Math.sqrt(distSq) / currentMouseRadius) * repulsionForce;
                 p.vx += dx * force;
                 p.vy += dy * force;
             }
@@ -137,20 +157,14 @@ document.addEventListener('DOMContentLoaded', () => {
         ctx.fillStyle = '#121212';
         ctx.fillRect(0, 0, width, height);
 
-        // Optimization: create a spatial map for points to avoid O(N^2) searching
-        const gridMap = new Map();
-        points.forEach((p, idx) => {
-            const key = `${p.type}-${p.i}-${p.j}`;
-            gridMap.set(key, idx);
-        });
-
         for (let i = 0; i < points.length; i++) {
             const p = points[i];
 
             const tSelf = brightnessAt(p.x, p.y);
+            const currentRadius = (nodeRadius + tSelf * 1.5) * zoomScale;
             // Nodes glow brighter and swell slightly the closer they are to the cursor
             ctx.beginPath();
-            ctx.arc(p.x, p.y, nodeRadius + tSelf * 1.5, 0, Math.PI * 2);
+            ctx.arc(p.x, p.y, currentRadius + tSelf * 1.5, 0, Math.PI * 2);
             ctx.fillStyle = colorForBrightness(tSelf, baseNodeRGB, baseNodeA, litNodeRGB, litNodeA);
             ctx.fill();
 
@@ -166,6 +180,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     { t: 'B', i: p.i,     j: p.j - 1 },   // Up-left
                     { t: 'B', i: p.i + 1, j: p.j - 1 }    // Up-right (was i-1,j+1 -- wrong neighbor)
                 ];
+
+                ctx.lineWidth = lineWidth * zoomScale;
 
                 targets.forEach(target => {
                     const targetIdx = gridMap.get(`${target.t}-${target.i}-${target.j}`);
