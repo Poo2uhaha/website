@@ -11,13 +11,34 @@ document.addEventListener('DOMContentLoaded', () => {
     // -----------------------------------------------------------------
     const hexSize = 40;              // Distance between points
     const lineWidth = 1;
-    const baseLineColor = 'rgba(60, 60, 60, 0.5)'; 
-    const activeLineColor = 'rgba(150, 150, 150, 0.8)';
     const nodeRadius = 2;
-    const mouseRadius = 150;         // Radius of influence
-    const repulsionForce = 0.03;     // Push magnitude (smaller = milder)
-    const stiffness = 0.02;          // Spring back strength (smaller = sluggish)
-    const damping = 0.92;            // High damping for sluggish movement
+    const mouseRadius = 150;         // Radius of illumination falloff
+    const repulsionForce = 0.015;     // Push magnitude (smaller = milder)
+    const stiffness = 0.015;          // Spring back strength (smaller = sluggish)
+    const damping = 0.94;            // High damping for sluggish movement
+
+    // Illumination color ramps: dim (far/unlit) -> bright (at cursor)
+    const baseNodeRGB = [60, 60, 60],   baseNodeA = 0.5;
+    const litNodeRGB  = [225, 225, 235], litNodeA = 0.95;
+    const baseLineRGB = [60, 60, 60],   baseLineA = 0.45;
+    const litLineRGB  = [180, 190, 210], litLineA = 0.9;
+
+    function lerp(a, b, t) { return a + (b - a) * t; }
+
+    // Smoothstep-eased brightness in [0, 1] based on distance from the cursor
+    function brightnessAt(px, py) {
+        const dist = Math.hypot(px - mouse.x, py - mouse.y);
+        const t = Math.max(0, Math.min(1, 1 - dist / mouseRadius));
+        return t * t * (3 - 2 * t);
+    }
+
+    function colorForBrightness(t, baseRGB, baseA, litRGB, litA) {
+        const r = lerp(baseRGB[0], litRGB[0], t) | 0;
+        const g = lerp(baseRGB[1], litRGB[1], t) | 0;
+        const b = lerp(baseRGB[2], litRGB[2], t) | 0;
+        const a = lerp(baseA, litA, t);
+        return `rgba(${r}, ${g}, ${b}, ${a.toFixed(3)})`;
+    }
 
     // -----------------------------------------------------------------
     // State
@@ -28,22 +49,34 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function buildGrid() {
         points = [];
-        // Use window.innerWidth/innerHeight instead of canvas.clientWidth
-        // because the canvas might not have layout dimensions yet
         width = window.innerWidth;
         height = window.innerHeight;
         canvas.width = width;
         canvas.height = height;
 
-        const cols = Math.ceil(width / (hexSize * 0.866)) + 1;
-        const rows = Math.ceil(height / (hexSize * 0.75)) + 1;
+        const a = hexSize; 
+        const v1x = a * Math.sqrt(3);
+        const v1y = 0;
+        const v2x = (a * Math.sqrt(3)) / 2;
+        const v2y = a * 1.5;
 
-        for (let r = 0; r < rows; r++) {
-            for (let c = 0; c < cols; c++) {
-                // Hexagonal offset
-                const ox = c * hexSize * 0.866;
-                const oy = (r * hexSize * 0.75) + (c % 2 === 0 ? 0 : (hexSize * 0.375));
-                points.push({ x: ox, y: oy, ox, oy, vx: 0, vy: 0 });
+        const tauBx = 0;
+        const tauBy = a;
+
+        // Calculate range to cover viewport exactly
+        const rangeX = Math.ceil(width / v1x) + 2;
+        const rangeY = Math.ceil(height / v2y) + 2;
+
+        for (let j = -1; j < rangeY; j++) {
+            for (let i = -1; i < rangeX; i++) {
+                const ax = i * v1x + j * v2x;
+                const ay = i * v1y + j * v2y;
+                const bx = ax + tauBx;
+                const by = ay + tauBy;
+
+                // Store nodes with their grid indices for O(1) lookup
+                points.push({ x: ax, y: ay, ox: ax, oy: ay, vx: 0, vy: 0, type: 'A', i, j });
+                points.push({ x: bx, y: by, ox: bx, oy: by, vx: 0, vy: 0, type: 'B', i, j });
             }
         }
     }
@@ -85,45 +118,56 @@ document.addEventListener('DOMContentLoaded', () => {
         ctx.fillStyle = '#121212';
         ctx.fillRect(0, 0, width, height);
 
-        const cols = Math.ceil(width / (hexSize * 0.866)) + 1;
-        
+        // Optimization: create a spatial map for points to avoid O(N^2) searching
+        const gridMap = new Map();
+        points.forEach((p, idx) => {
+            const key = `${p.type}-${p.i}-${p.j}`;
+            gridMap.set(key, idx);
+        });
+
         for (let i = 0; i < points.length; i++) {
             const p = points[i];
-            const col = i % cols;
-            const row = Math.floor(i / cols);
 
-            // Determine if this point is "illuminated"
-            const dist = Math.hypot(p.x - mouse.x, p.y - mouse.y);
-            const isLit = dist < mouseRadius;
-            const color = isLit ? activeLineColor : baseLineColor;
-
-            // Draw nodes
+            const tSelf = brightnessAt(p.x, p.y);
+            // Nodes glow brighter and swell slightly the closer they are to the cursor
             ctx.beginPath();
-            ctx.arc(p.x, p.y, nodeRadius, 0, Math.PI * 2);
-            ctx.fillStyle = isLit ? 'rgba(200, 200, 200, 0.8)' : 'rgba(60, 60, 60, 0.5)';
+            ctx.arc(p.x, p.y, nodeRadius + tSelf * 1.5, 0, Math.PI * 2);
+            ctx.fillStyle = colorForBrightness(tSelf, baseNodeRGB, baseNodeA, litNodeRGB, litNodeA);
             ctx.fill();
 
-            // Draw connections to neighbors (hexagonal logic)
-            const isEvenCol = col % 2 === 0;
-            const targetNeighbors = isEvenCol ? 
-                [{c: 1, r: 0}, {c: 1, r: 1}, {c: 0, r: 1}] : 
-                [{c: 1, r: -1}, {c: 1, r: 0}, {c: 0, r: 1}];
+            if (p.type === 'A') {
+                // Fixed connectivity for the honeycomb lattice.
+                // Basis: v1=(s3,0), v2=(s3/2, 1.5), tau_B=(0, a)
+                // Neighbors of A(i, j), each at bond length a:
+                // 1. B(i, j)     -> offset (0, a)          straight down
+                // 2. B(i, j-1)   -> offset (-s3/2, -0.5a)  up-left
+                // 3. B(i+1, j-1) -> offset (+s3/2, -0.5a)  up-right
+                const targets = [
+                    { t: 'B', i: p.i,     j: p.j },       // Down
+                    { t: 'B', i: p.i,     j: p.j - 1 },   // Up-left
+                    { t: 'B', i: p.i + 1, j: p.j - 1 }    // Up-right (was i-1,j+1 -- wrong neighbor)
+                ];
 
-            targetNeighbors.forEach(n => {
-                const nc = col + n.c;
-                const nr = row + n.r;
-                if (nc >= 0 && nc < cols && nr >= 0 && nr < Math.floor(points.length / cols)) {
-                    const index = nr * cols + nc;
-                    if (index >= 0 && index < points.length) {
-                        const p2 = points[index];
+                targets.forEach(target => {
+                    const targetIdx = gridMap.get(`${target.t}-${target.i}-${target.j}`);
+                    if (targetIdx !== undefined) {
+                        const p2 = points[targetIdx];
+                        const tOther = brightnessAt(p2.x, p2.y);
+
+                        // Per-segment gradient so light flows smoothly from a
+                        // lit endpoint into a dim one, rather than one flat color
+                        const grad = ctx.createLinearGradient(p.x, p.y, p2.x, p2.y);
+                        grad.addColorStop(0, colorForBrightness(tSelf, baseLineRGB, baseLineA, litLineRGB, litLineA));
+                        grad.addColorStop(1, colorForBrightness(tOther, baseLineRGB, baseLineA, litLineRGB, litLineA));
+
                         ctx.beginPath();
-                        ctx.strokeStyle = color;
+                        ctx.strokeStyle = grad;
                         ctx.moveTo(p.x, p.y);
                         ctx.lineTo(p2.x, p2.y);
                         ctx.stroke();
                     }
-                }
-            });
+                });
+            }
         }
     }
 
