@@ -16,8 +16,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const repulsionForce = 0.015;     // Push magnitude (smaller = milder)
     const stiffness = 0.015;          // Spring back strength (smaller = sluggish)
     const damping = 0.94;            // High damping for sluggish movement
-
-    // Illumination color ramps: dim (far/unlit) -> bright (at cursor)
+  // Illumination color ramps: dim (far/unlit) -> bright (at cursor)
     const baseNodeRGB = [60, 60, 60],   baseNodeA = 0.5;
     const litNodeRGB  = [225, 225, 235], litNodeA = 0.95;
     const baseLineRGB = [60, 60, 60],   baseLineA = 0.45;
@@ -46,6 +45,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let points = [];                 // {x, y, ox, oy, vx, vy}
     let mouse = { x: -9999, y: -9999 };
     let width, height;
+    let baseArea = null;             // viewport area at first load; the zoom reference point
 
     function buildGrid() {
         points = [];
@@ -54,7 +54,17 @@ document.addEventListener('DOMContentLoaded', () => {
         canvas.width = width;
         canvas.height = height;
 
-        const a = hexSize; 
+        // Keep the total node count roughly constant across zoom levels.
+        // Zooming out grows the CSS-pixel viewport area, so without this the
+        // point count (and everything in updatePoints/draw) scales with it
+        // and performance falls off a cliff. Instead we grow the spacing
+        // between points ('a') so the same rough node budget still covers
+        // whatever area is now visible.
+        const currentArea = width * height;
+        if (baseArea === null) baseArea = currentArea; // reference = first load
+        const zoomScale = Math.sqrt(currentArea / baseArea);
+        const a = hexSize * zoomScale;
+
         const v1x = a * Math.sqrt(3);
         const v1y = 0;
         const v2x = (a * Math.sqrt(3)) / 2;
@@ -63,12 +73,21 @@ document.addEventListener('DOMContentLoaded', () => {
         const tauBx = 0;
         const tauBy = a;
 
-        // Calculate range to cover viewport exactly
-        const rangeX = Math.ceil(width / v1x) + 2;
+        // Row count needed to cover the viewport height
         const rangeY = Math.ceil(height / v2y) + 2;
 
         for (let j = -1; j < rangeY; j++) {
-            for (let i = -1; i < rangeX; i++) {
+            // Each row is horizontally sheared by j * v2x (that's what makes
+            // it a honeycomb rather than a rectangular grid), so the i-range
+            // needed to cover x=[0, width] drifts leftward as j grows. Using
+            // a single fixed i-range for every row (the old behavior) only
+            // ever covered the top row correctly, leaving a growing wedge of
+            // blank space in the bottom-left as j increased. Computing
+            // per-row bounds fixes that without over-generating points.
+            const iStart = Math.floor(-(j * v2x) / v1x) - 1;
+            const iEnd = Math.ceil((width - j * v2x) / v1x) + 1;
+
+            for (let i = iStart; i <= iEnd; i++) {
                 const ax = i * v1x + j * v2x;
                 const ay = i * v1y + j * v2y;
                 const bx = ax + tauBx;
@@ -188,6 +207,27 @@ document.addEventListener('DOMContentLoaded', () => {
             console.error('Error during grid initialization:', e);
         }
     }
-    window.addEventListener('resize', () => buildGrid());
+    // --------------------------------------------------------------
+    // Zoom / viewport-scale handling
+    // --------------------------------------------------------------
+    // Plain window resize (dragging the window edge) and browser/page zoom
+    // both change window.innerWidth/innerHeight in most browsers, so both
+    // route through buildGrid(), which re-derives point spacing from the
+    // current viewport area to keep the total node count roughly constant.
+    // Pinch-zoom / trackpad zoom on touch devices can change
+    // window.visualViewport.scale without firing a plain 'resize', so that's
+    // listened for separately.
+    let rebuildTimer = null;
+    function scheduleRebuild() {
+        clearTimeout(rebuildTimer);
+        // Debounce so continuous resizing/pinching doesn't rebuild every frame
+        rebuildTimer = setTimeout(buildGrid, 120);
+    }
+
+    window.addEventListener('resize', scheduleRebuild);
+    if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', scheduleRebuild);
+    }
+
     init();
 });
