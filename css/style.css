@@ -17,17 +17,18 @@ html, body {
     overflow-x: hidden;
 }
 
-a { color: inherit; text-decoration: none; }
-ul { list-style: none; }
-
-/* Academic Layout */
-.top-banner {
-    width: 100%;
-    height: 200px;
-    background-image: url('../me.jpeg');
-    background-size: cover;
-    background-position: center;
-    border-bottom: 4px solid #222;
+/* Ensure the canvas is actually visible and on top of the body background */
+#gridCanvas {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    /* z-index -1 puts it behind the content card, 
+       but it must be higher than the body background */
+    z-index: 0;
+    pointer-events: none;
+    display: block;
 }
 
 .academic-container {
@@ -155,20 +156,3 @@ ul { list-style: none; }
 /* Footer */
 .footer { text-align: center; padding: 2rem; opacity: 0.7; }
 
-/* Canvas that hosts the interactive grid background */
-#gridCanvas {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    /* place it behind page content */
-    z-index: -1;
-    pointer-events: none;       /* allow clicks to pass through */
-}
-
-@media (max-width: 768px) {
-    .hero h1 { font-size: 2.2rem; }
-    .navbar { flex-direction: column; }
-    .nav-links li { margin: 0.5rem 0; }
-}
