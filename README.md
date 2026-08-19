@@ -1,3 +1,3 @@
 # website
-personal website hosted at oliverlea.sk
+personal website hosted at https://oliverlea.sk
 
