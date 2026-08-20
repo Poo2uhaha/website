@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------
-// Hexagonal Grid with Repulsive Spring Distortion
+// Hexagonal Grid with Repulsive Spring Distortion (Optimized)
 // ---------------------------------------------------------------
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -9,14 +9,15 @@ document.addEventListener('DOMContentLoaded', () => {
     // -----------------------------------------------------------------
     // Configuration
     // -----------------------------------------------------------------
-    const hexSize = 40;              // Distance between points
+    const hexSize = 40;                 // Distance between points
     const lineWidth = 1;
     const nodeRadius = 2;
-    const baseMouseRadius = 150;         // Radius of illumination falloff
-    const repulsionForce = 0.015;     // Push magnitude (smaller = milder)
-    const stiffness = 0.015;          // Spring back strength (smaller = sluggish)
-    const damping = 0.94;            // High damping for sluggish movement
-  // Illumination color ramps: dim (far/unlit) -> bright (at cursor)
+    const baseMouseRadius = 150;        // Radius of illumination falloff
+    const repulsionForce = 0.015;       // Push magnitude (smaller = milder)
+    const stiffness = 0.02;             // Spring back strength (smaller = sluggish)
+    const damping = 0.85;               // High damping for sluggish movement
+
+    // Illumination color ramps: dim (far/unlit) -> bright (at cursor)
     const baseNodeRGB = [60, 60, 60],   baseNodeA = 0.5;
     const litNodeRGB  = [225, 225, 235], litNodeA = 0.95;
     const baseLineRGB = [60, 60, 60],   baseLineA = 0.45;
@@ -26,18 +27,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Smoothstep-eased brightness in [0, 1] based on distance from the cursor
     function brightnessAt(px, py) {
-            const dx = px - mouse.x;
-            const dy = py - mouse.y;
-            const distSq = dx * dx + dy * dy;
-            const radiusSq = currentMouseRadius * currentMouseRadius;
+        const dx = px - mouse.x;
+        const dy = py - mouse.y;
+        const distSq = dx * dx + dy * dy;
+        const radiusSq = currentMouseRadius * currentMouseRadius;
 
-            // If the point is outside the mouse radius, return 0 instantly without Math.hypot
-            if (distSq >= radiusSq) return 0;
+        if (distSq >= radiusSq) return 0;
 
-            const dist = Math.sqrt(distSq);
-            const t = 1 - dist / currentMouseRadius;
-            return t * t * (3 - 2 * t);
-        }
+        const dist = Math.sqrt(distSq);
+        const t = 1 - dist / currentMouseRadius;
+        return t * t * (3 - 2 * t);
+    }
 
     function colorForBrightness(t, baseRGB, baseA, litRGB, litA) {
         const r = lerp(baseRGB[0], litRGB[0], t) | 0;
@@ -50,32 +50,27 @@ document.addEventListener('DOMContentLoaded', () => {
     // -----------------------------------------------------------------
     // State
     // -----------------------------------------------------------------
-    let points = [];                 // {x, y, ox, oy, vx, vy}
+    let points = [];                    // {x, y, ox, oy, vx, vy, brightness}
     let mouse = { x: -9999, y: -9999 };
     let gridMap = new Map();   
     let width, height;
     let baseArea = null;
     let zoomScale = 1;          
     let currentMouseRadius = 150;
-    
 
     function buildGrid() {
         points = [];
-        gridMap.clear(); // <--- Clear the old map
+        gridMap.clear();
         width = window.innerWidth;
         height = window.innerHeight;
         canvas.width = width;
         canvas.height = height;
 
-        // Keep the total node count roughly constant across zoom levels.
-        // Zooming out grows the CSS-pixel viewport area, so without this the
-        // point count (and everything in updatePoints/draw) scales with it
-        // and performance falls off a cliff. Instead we grow the spacing
-        // between points ('a') so the same rough node budget still covers
-        // whatever area is now visible.
         const currentArea = width * height;
-        if (baseArea === null) baseArea = currentArea; // reference = first load
-        zoomScale = Math.sqrt(currentArea / baseArea);
+        if (baseArea === null) baseArea = currentArea;
+        
+        // OPTIMIZATION: Cap the zoom scale to prevent performance crashes on 4K/fullscreen monitors
+        zoomScale = Math.min(Math.sqrt(currentArea / baseArea), 1.8);
 
         currentMouseRadius = baseMouseRadius * zoomScale;
         const a = hexSize * zoomScale;
@@ -88,17 +83,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const tauBx = 0;
         const tauBy = a;
 
-        // Row count needed to cover the viewport height
         const rangeY = Math.ceil(height / v2y) + 2;
 
         for (let j = -1; j < rangeY; j++) {
-            // Each row is horizontally sheared by j * v2x (that's what makes
-            // it a honeycomb rather than a rectangular grid), so the i-range
-            // needed to cover x=[0, width] drifts leftward as j grows. Using
-            // a single fixed i-range for every row (the old behavior) only
-            // ever covered the top row correctly, leaving a growing wedge of
-            // blank space in the bottom-left as j increased. Computing
-            // per-row bounds fixes that without over-generating points.
             const iStart = Math.floor(-(j * v2x) / v1x) - 1;
             const iEnd = Math.ceil((width - j * v2x) / v1x) + 1;
 
@@ -108,16 +95,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 const bx = ax + tauBx;
                 const by = ay + tauBy;
 
-                // Store nodes with their grid indices for O(1) lookup
-                points.push({ x: ax, y: ay, ox: ax, oy: ay, vx: 0, vy: 0, type: 'A', i, j });
-                points.push({ x: bx, y: by, ox: bx, oy: by, vx: 0, vy: 0, type: 'B', i, j });
+                points.push({ x: ax, y: ay, ox: ax, oy: ay, vx: 0, vy: 0, type: 'A', i, j, brightness: 0 });
+                points.push({ x: bx, y: by, ox: bx, oy: by, vx: 0, vy: 0, type: 'B', i, j, brightness: 0 });
             }
         }
 
         points.forEach((p, idx) => {
-        const key = `${p.type}-${p.i}-${p.j}`;
-        gridMap.set(key, idx);
-    });
+            const key = `${p.type}-${p.i}-${p.j}`;
+            gridMap.set(key, idx);
+        });
     }
 
     document.addEventListener('mousemove', e => {
@@ -134,13 +120,11 @@ document.addEventListener('DOMContentLoaded', () => {
             const radiusSq = currentMouseRadius * currentMouseRadius;
 
             if (distSq < radiusSq) {
-                // PUSH AWAY from cursor
                 const force = (1 - Math.sqrt(distSq) / currentMouseRadius) * repulsionForce;
                 p.vx += dx * force;
                 p.vy += dy * force;
             }
 
-            // Spring back to rest
             const sx = p.ox - p.x;
             const sy = p.oy - p.y;
             p.vx += sx * stiffness;
@@ -150,6 +134,9 @@ document.addEventListener('DOMContentLoaded', () => {
             p.vy *= damping;
             p.x += p.vx;
             p.y += p.vy;
+
+            // OPTIMIZATION: Cache brightness here once per frame so draw() doesn't recalculate it
+            p.brightness = brightnessAt(p.x, p.y);
         }
     }
 
@@ -159,26 +146,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
         for (let i = 0; i < points.length; i++) {
             const p = points[i];
-
-            const tSelf = brightnessAt(p.x, p.y);
+            const tSelf = p.brightness; // Using cached value
             const currentRadius = (nodeRadius + tSelf * 1.5) * zoomScale;
-            // Nodes glow brighter and swell slightly the closer they are to the cursor
+
             ctx.beginPath();
             ctx.arc(p.x, p.y, currentRadius + tSelf * 1.5, 0, Math.PI * 2);
             ctx.fillStyle = colorForBrightness(tSelf, baseNodeRGB, baseNodeA, litNodeRGB, litNodeA);
             ctx.fill();
 
             if (p.type === 'A') {
-                // Fixed connectivity for the honeycomb lattice.
-                // Basis: v1=(s3,0), v2=(s3/2, 1.5), tau_B=(0, a)
-                // Neighbors of A(i, j), each at bond length a:
-                // 1. B(i, j)     -> offset (0, a)          straight down
-                // 2. B(i, j-1)   -> offset (-s3/2, -0.5a)  up-left
-                // 3. B(i+1, j-1) -> offset (+s3/2, -0.5a)  up-right
                 const targets = [
                     { t: 'B', i: p.i,     j: p.j },       // Down
                     { t: 'B', i: p.i,     j: p.j - 1 },   // Up-left
-                    { t: 'B', i: p.i + 1, j: p.j - 1 }    // Up-right (was i-1,j+1 -- wrong neighbor)
+                    { t: 'B', i: p.i + 1, j: p.j - 1 }    // Up-right
                 ];
 
                 ctx.lineWidth = lineWidth * zoomScale;
@@ -187,16 +167,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     const targetIdx = gridMap.get(`${target.t}-${target.i}-${target.j}`);
                     if (targetIdx !== undefined) {
                         const p2 = points[targetIdx];
-                        const tOther = brightnessAt(p2.x, p2.y);
+                        const tOther = p2.brightness; // Using cached value
 
-                        // Per-segment gradient so light flows smoothly from a
-                        // lit endpoint into a dim one, rather than one flat color
-                        const grad = ctx.createLinearGradient(p.x, p.y, p2.x, p2.y);
-                        grad.addColorStop(0, colorForBrightness(tSelf, baseLineRGB, baseLineA, litLineRGB, litLineA));
-                        grad.addColorStop(1, colorForBrightness(tOther, baseLineRGB, baseLineA, litLineRGB, litLineA));
+                        // OPTIMIZATION: Replaced slow createLinearGradient with a fast solid averaged stroke color
+                        const avgT = (tSelf + tOther) * 0.5;
 
                         ctx.beginPath();
-                        ctx.strokeStyle = grad;
+                        ctx.strokeStyle = colorForBrightness(avgT, baseLineRGB, baseLineA, litLineRGB, litLineA);
                         ctx.moveTo(p.x, p.y);
                         ctx.lineTo(p2.x, p2.y);
                         ctx.stroke();
@@ -207,36 +184,30 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function animate() {
+        // Optional Debug timing to test performance in the browser console
+        const t0 = performance.now();
         updatePoints();
         draw();
+        const t1 = performance.now();
+
+        // Uncomment the line below if you want to inspect frame times in production
+        // if ((t1 - t0) > 20) console.warn(`Slow frame: ${(t1 - t0).toFixed(1)}ms | Points: ${points.length}`);
+
         requestAnimationFrame(animate);
     }
 
     function init() {
-        console.log('Grid Init started');
         try {
             buildGrid();
-            console.log('Grid built with', points.length, 'points');
             animate();
-            console.log('Animation loop started');
         } catch (e) {
             console.error('Error during grid initialization:', e);
         }
     }
-    // --------------------------------------------------------------
-    // Zoom / viewport-scale handling
-    // --------------------------------------------------------------
-    // Plain window resize (dragging the window edge) and browser/page zoom
-    // both change window.innerWidth/innerHeight in most browsers, so both
-    // route through buildGrid(), which re-derives point spacing from the
-    // current viewport area to keep the total node count roughly constant.
-    // Pinch-zoom / trackpad zoom on touch devices can change
-    // window.visualViewport.scale without firing a plain 'resize', so that's
-    // listened for separately.
+
     let rebuildTimer = null;
     function scheduleRebuild() {
         clearTimeout(rebuildTimer);
-        // Debounce so continuous resizing/pinching doesn't rebuild every frame
         rebuildTimer = setTimeout(buildGrid, 120);
     }
 
